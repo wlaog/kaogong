@@ -9,6 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
+    "start:prod": "node server/prod.mjs",
     "lint": "oxlint",
     "format": "oxfmt",
     "db:generate": "drizzle-kit generate"
@@ -52,7 +53,8 @@
     "typescript": "5.9.3",
     "vite": "8.0.13",
     "wrangler": "4.92.0",
-    "drizzle-kit": "0.31.10"
+    "drizzle-kit": "0.31.10",
+    "miniflare": "^4.0.0"
   },
   "type": "module"
 }
