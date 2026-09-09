@@ -1,0 +1,1 @@
+import type { Metadata } from 'next'; import './globals.css'; export const metadata:Metadata={title:'软软上岸 · 30 天考公小站',description:'每天前进一小步，30 天学习路径、真题、公开经验和错题复盘。'}; export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="zh-CN"><body>{children}</body></html>}
