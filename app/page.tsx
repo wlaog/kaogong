@@ -1,2 +1,2 @@
-import StudyApp from '@/components/study-app';
-export default function Home() { return <StudyApp />; }
+import AuthShell from '@/components/auth-shell';
+export default function Home() { return <AuthShell />; }

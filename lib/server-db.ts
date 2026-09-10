@@ -1,4 +1,8 @@
-import {env} from 'cloudflare:workers'; export function db(){if(!env.DB)throw new Error('学习记录暂时无法连接，请稍后再试');return env.DB;}
-export function response(data:unknown,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}})}
-export function safeRequest(request:Request){const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)throw new Error('请求来源不匹配');}
+import {env} from 'cloudflare:workers';
+export function db(){if(!env.DB)throw new Error('数据库连接不可用');return env.DB}
+export class HttpError extends Error{status:number;constructor(status:number,message:string){super(message);this.status=status}}
+export function response(data:unknown,status=200,extra:Record<string,string>={}){return Response.json(data,{status,headers:{'Cache-Control':'no-store, private','Vary':'Cookie','X-Content-Type-Options':'nosniff',...extra}})}
+export function safeRequest(request:Request){if(request.headers.get('origin')!==new URL(request.url).origin||request.headers.get('sec-fetch-site')==='cross-site')throw new HttpError(403,'请求来源不匹配，请从本站重新操作');if(!request.headers.get('content-type')?.toLowerCase().startsWith('application/json'))throw new HttpError(415,'请使用正确的请求格式')}
+export async function readJson(request:Request,max=16000):Promise<Record<string,unknown>>{safeRequest(request);if(Number(request.headers.get('content-length'))>max)throw new HttpError(413,'内容太长，请缩短后再试');const reader=request.body?.getReader();if(!reader)throw new HttpError(400,'请填写必要信息');let bytes=0;const chunks:Uint8Array[]=[];try{for(;;){const {value,done}=await reader.read();if(done)break;bytes+=value.length;if(bytes>max)throw new HttpError(413,'内容太长，请缩短后再试');chunks.push(value)}}finally{await reader.cancel().catch(()=>{})}const all=new Uint8Array(bytes);let offset=0;for(const c of chunks){all.set(c,offset);offset+=c.length}try{const value=JSON.parse(new TextDecoder().decode(all));if(!value||typeof value!=='object'||Array.isArray(value))throw Error();return value}catch{throw new HttpError(400,'请求内容格式不正确')}}
+export function errorResponse(error:unknown,fallback='暂时没有完成，请稍后再试'){if(error instanceof HttpError)return response({error:error.message},error.status);console.error('Request failed:',error instanceof Error?error.message:'unknown error');return response({error:fallback},503)}
 
