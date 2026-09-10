@@ -1,6 +1,7 @@
 // 生产环境入口（PM2 守护此文件）：
-// 用项目官方支持的 wrangler dev（内含 workerd 运行时）运行构建产物，
-// D1 以本地 SQLite 持久化（.wrangler/state/v3），业务代码零改动。
+// 用项目官方支持的 wrangler dev（内含 workerd 运行时）运行构建产物。
+// 重要：数据通过 --persist-to 固定在项目根 .wrangler/state，
+// 与 dist/ 隔离——npm run build 清空 dist 不会影响数据库。
 // 用法：npm run build 后，pm2 start server/prod.mjs --name kaogong
 import fs from 'node:fs';
 import path from 'node:path';
@@ -11,6 +12,7 @@ const port = process.env.PORT || '3000';
 const host = process.env.HOST || '0.0.0.0';
 const wranglerJs = 'node_modules/wrangler/bin/wrangler.js';
 const configArgs = ['--config', 'dist/server/wrangler.json'];
+const persistArgs = ['--persist-to', '.wrangler/state'];
 const migrationsDir = 'drizzle';
 
 if (!fs.existsSync(wranglerJs)) {
@@ -25,33 +27,26 @@ if (!fs.existsSync('dist/server/wrangler.json')) {
 function wranglerD1(extraArgs) {
   return spawnSync(
     process.execPath,
-    [wranglerJs, 'd1', 'execute', 'DB', '--local', '-y', ...configArgs, ...extraArgs],
+    [wranglerJs, 'd1', 'execute', 'DB', '--local', '-y', ...configArgs, ...persistArgs, ...extraArgs],
     { stdio: 'pipe', encoding: 'utf8' },
   );
 }
 
-// 按 drizzle/_journal.json 顺序应用全部迁移（幂等：每文件记录 marker，表已存在视为已应用）
+// 每次启动执行全部迁移；"表已存在"视为已应用，自愈式幂等
 function applyMigrations() {
   const journal = JSON.parse(fs.readFileSync(path.join(migrationsDir, 'meta/_journal.json'), 'utf8'));
-  const markerDir = '.wrangler/migrations';
-  fs.mkdirSync(markerDir, { recursive: true });
-  let applied = 0;
+  let ok = 0;
   for (const entry of journal.entries) {
     const file = path.join(migrationsDir, `${entry.tag}.sql`);
-    const marker = path.join(markerDir, `${entry.tag}.done`);
-    if (fs.existsSync(marker)) continue;
-    console.log(`应用迁移 ${path.basename(file)} …`);
     const r = wranglerD1(['--file', file]);
     const out = (r.stdout || '') + (r.stderr || '');
     if (r.status !== 0 && !/already exists/i.test(out)) {
       console.error(`迁移 ${file} 失败：\n` + out);
       process.exit(1);
     }
-    fs.writeFileSync(marker, 'ok');
-    applied++;
+    ok++;
   }
-  if (applied) console.log(`数据库迁移完成（${applied} 个新迁移）`);
-  else console.log('数据库迁移已是最新');
+  console.log(`数据库迁移检查完成（${ok} 个迁移）`);
 }
 
 // 确保存在可用的"站长"邀请码：还没有管理员账号时自动生成/刷新一次性邀请码
@@ -59,7 +54,7 @@ function ensureOwnerInvite() {
   const query = "SELECT (SELECT COUNT(*) FROM auth_users WHERE role='admin') AS admins,(SELECT COUNT(*) FROM auth_invites WHERE id='bootstrap-owner' AND revoked=0 AND used<max_uses AND expires_at>strftime('%s','now')*1000) AS valid";
   const r = wranglerD1(['--json', '--command', query]);
   if (r.status !== 0) {
-    console.error('检查站长邀请码失败：\n' + (r.stdout || '') + (r.stderr || ''));
+    console.error('检查站长邀请码失败（首次启动请稍等迁移完成）：\n' + (r.stdout || '') + (r.stderr || ''));
     return;
   }
   let admins = 0, valid = 0;
@@ -99,7 +94,7 @@ ensureOwnerInvite();
 // 拉起 wrangler dev（workerd），由本进程随 PM2 一起被守护
 const child = spawn(
   process.execPath,
-  [wranglerJs, 'dev', ...configArgs, '--port', String(port), '--ip', host],
+  [wranglerJs, 'dev', ...configArgs, ...persistArgs, '--port', String(port), '--ip', host],
   { stdio: 'inherit', env: { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false' } },
 );
 child.on('exit', (code) => process.exit(code ?? 1));
