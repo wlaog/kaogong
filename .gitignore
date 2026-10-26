@@ -40,3 +40,7 @@ next-env.d.ts
 !.env.example
 .dev.vars*
 /.local/
+
+login.json
+out.log
+err.log
