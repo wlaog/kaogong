@@ -3,8 +3,9 @@ import {db,HttpError,response} from './server-db';
 import {digest,newToken} from './auth-crypto';
 import type {AuthUser} from './auth-types';
 export const SESSION_MS=7*86400000;
-const cookieName=(request:Request)=>new URL(request.url).protocol==='https:'?'__Host-ruanruan_session':'ruanruan_session_dev';
-export function sessionCookie(request:Request,token:string,clear=false){return cookieName(request)+'='+token+'; Path=/; HttpOnly; SameSite=Lax; Max-Age='+(clear?0:SESSION_MS/1000)+(new URL(request.url).protocol==='https:'?'; Secure':'')}
+const isHttps=(request:Request)=>(request.headers.get('x-forwarded-proto')?.split(',')[0].trim()||new URL(request.url).protocol.replace(':',''))==='https:';
+const cookieName=(request:Request)=>isHttps(request)?'__Host-ruanruan_session':'ruanruan_session_dev';
+export function sessionCookie(request:Request,token:string,clear=false){return cookieName(request)+'='+token+'; Path=/; HttpOnly; SameSite=Lax; Max-Age='+(clear?0:SESSION_MS/1000)+(isHttps(request)?'; Secure':'')}
 export function sessionToken(request:Request){const name=cookieName(request);const token=(request.headers.get('cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(name+'='))?.slice(name.length+1)||'';return /^[A-Za-z0-9_-]{43}$/.test(token)?token:''}
 export async function currentUser(request:Request):Promise<AuthUser|null>{const token=sessionToken(request);if(!token)return null;return db().prepare('SELECT u.id,u.username,u.display_name AS displayName,u.role FROM auth_sessions s JOIN auth_users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?').bind(digest(token),Date.now()).first<AuthUser>()}
 export async function requireUser(request:Request){const user=await currentUser(request);if(!user)throw new HttpError(401,'登录已过期，请重新登录');return user}

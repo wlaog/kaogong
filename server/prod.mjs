@@ -91,13 +91,21 @@ function ensureOwnerInvite() {
 applyMigrations();
 ensureOwnerInvite();
 
-// 拉起 wrangler dev（workerd），由本进程随 PM2 一起被守护
+// 拉起 wrangler dev（workerd），由本进程随 PM2 一起被守护。
+// detached + 进程组信号：PM2 重启/停止时把 wrangler 及其子进程 workerd 一并杀掉，
+// 避免 workerd 变成孤儿进程占住端口（曾导致 Address already in use 崩溃循环）。
 const child = spawn(
   process.execPath,
   [wranglerJs, 'dev', ...configArgs, ...persistArgs, '--port', String(port), '--ip', host],
-  { stdio: 'inherit', env: { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false' } },
+  { detached: true, stdio: 'inherit', env: { ...process.env, CI: 'true', WRANGLER_SEND_METRICS: 'false' } },
 );
 child.on('exit', (code) => process.exit(code ?? 1));
+function shutdown(sig) {
+  try {
+    if (child.pid) process.kill(-child.pid, sig); // 负数 pid = 杀整个进程组
+  } catch { /* 进程可能已退出 */ }
+  process.exit(0);
+}
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => child.kill(sig));
+  process.on(sig, () => shutdown(sig));
 }
